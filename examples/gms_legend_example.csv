@@ -1,0 +1,6 @@
+Code,Name,Color,Pattern,Group
+1,Top soil,#A67C52,roots+fine_dots,Soil & cover
+2,Weathered garnet biotite gneiss (GBG),#E8C9A6,waves+diag,Weathering profile
+3,Garnet biotite gneiss (GBG),#D9CFEA,waves,Crystalline
+4,Fractured layer with water,#9FCBEA,waves+fractures,Aquifer
+5,Khondalite,#C7A49B,schist+fine_dots,Crystalline
