@@ -66,8 +66,21 @@ litholog piper my_site.xlsx            # needs a WaterQuality sheet
 | `model` | 3D lithology solids, volumes and saturated storage |
 | `dxf`, `kmz` | AutoCAD DXF and Google Earth exports |
 | `piper`, `stiff` | hydrochemical diagrams |
+| `openhydro` | layer bases and observation wells as OpenHydro Studio import files (see below) |
 | `legend` | print or draw the lithology legend |
 | `app`, `studio` | open the browser app or the desktop studio |
+
+## Use with OpenHydro Studio
+
+```bash
+litholog openhydro my_site.xlsx -o openhydro_import --layers "Soil=SOIL;Weathered=CLAY,SAND;Rock=LST,GRN"
+```
+
+This writes `litholog_soundings.csv` (depth of each layer base below ground, a zero-thickness layer where a
+hole lacks that unit, blanks where the hole stops short) and `litholog_observation_wells.csv` (collar, well
+depth and depth to water). Import them in OpenHydro Studio with *Data > Subsurface > Soundings* and
+*Data > Wells > Observation*. The X and Y in the workbook must already be in the model's projected CRS.
+Leave out `--layers` to use one layer per lithology code, ordered by average depth.
 
 ## Python
 

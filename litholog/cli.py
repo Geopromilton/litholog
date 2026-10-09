@@ -1,4 +1,4 @@
-"""Command line: ``litholog template | validate | convert | striplog | section | fence | map | model | dxf | kmz | piper | stiff | legend | app | studio``."""
+"""Command line: ``litholog template | validate | convert | striplog | section | fence | map | model | dxf | kmz | piper | stiff | openhydro | legend | app | studio``."""
 
 from __future__ import annotations
 
@@ -133,6 +133,14 @@ def main(argv=None) -> int:
     st.add_argument("-o", "--out", default="stiff.png")
     st.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
 
+    oh = sub.add_parser("openhydro", help="export layers and observation wells as OpenHydro Studio import files")
+    oh.add_argument("data")
+    oh.add_argument("-o", "--out", default="openhydro_import")
+    oh.add_argument("--layers", help='group lithology codes into model layers, e.g. "Soil=SOIL;Weathered=CLAY,SAND;Rock=LST,GRN"')
+    oh.add_argument("--level", default="latest", choices=["latest", "mean", "min", "max"],
+                    help="which depth to water to export for each borehole")
+    oh.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
+
     sub.add_parser("studio", help="open the desktop studio (needs: pip install \"litholog[gui]\")")
 
     ap = sub.add_parser("app", help="open the LithoLog browser app")
@@ -147,7 +155,7 @@ def main(argv=None) -> int:
     return {"template": _template, "validate": _validate, "striplog": _striplog,
             "legend": _legend, "convert": _convert, "section": _section, "fence": _fence,
             "map": _map, "model": _model, "app": _app, "dxf": _dxf, "kmz": _kmz,
-            "piper": _piper, "stiff": _stiff, "studio": _studio}[a.cmd](a)
+            "piper": _piper, "stiff": _stiff, "studio": _studio, "openhydro": _openhydro}[a.cmd](a)
 
 
 def _template(a):
@@ -503,6 +511,22 @@ def _studio(a):
     from .studio.app import main as studio_main
 
     return studio_main([])
+
+
+def _openhydro(a):
+    from .io import load_project
+    from .openhydro import export_openhydro, parse_layer_option
+
+    project = load_project(a.data, legend=a.legend)
+    try:
+        paths = export_openhydro(project, a.out, parse_layer_option(a.layers), a.level)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    for kind, path in paths.items():
+        print(f"Wrote {path}  ({kind})")
+    print("Import them in OpenHydro Studio: Data > Subsurface > Soundings and Data > Wells > Observation.")
+    return 0
 
 
 def _safe(name: str) -> str:
