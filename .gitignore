@@ -24,8 +24,11 @@ decompiled_*/
 *.exe_extracted/
 litholog_source_ribbon/
 *.exe
+!build_exe.ps1
 *.zip
 _internal
+build_exe/
+dist/
 
 # Bundled runtime and duplicate manual
 tools/python312/
