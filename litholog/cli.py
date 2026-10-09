@@ -1,4 +1,4 @@
-"""Command line: ``litholog template | validate | striplog | legend``."""
+"""Command line: ``litholog template | validate | convert | striplog | section | fence | map | model | dxf | kmz | piper | stiff | legend | app | studio``."""
 
 from __future__ import annotations
 
@@ -111,6 +111,30 @@ def main(argv=None) -> int:
     md.add_argument("--title", help="project name")
     md.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
 
+    dx = sub.add_parser("dxf", help="export 3D boreholes and collars to AutoCAD DXF (R12)")
+    dx.add_argument("data")
+    dx.add_argument("-o", "--out", default="boreholes.dxf")
+    dx.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
+
+    kz = sub.add_parser("kmz", help="export 3D lithology tubes to a Google Earth KMZ")
+    kz.add_argument("data")
+    kz.add_argument("-o", "--out", default="boreholes.kmz")
+    kz.add_argument("--crs", help="CRS of the borehole X/Y, e.g. EPSG:32643 (guessed for UTM if omitted)")
+    kz.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
+
+    pp = sub.add_parser("piper", help="Piper trilinear diagram from the WaterQuality sheet")
+    pp.add_argument("data")
+    pp.add_argument("-o", "--out", default="piper.png")
+    pp.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
+
+    st = sub.add_parser("stiff", help="Stiff diagram for one water sample (default: the first)")
+    st.add_argument("data")
+    st.add_argument("-b", "--borehole", help="borehole ID of the sample")
+    st.add_argument("-o", "--out", default="stiff.png")
+    st.add_argument("-l", "--legend", help="legend file (CSV/Excel)")
+
+    sub.add_parser("studio", help="open the desktop studio (needs: pip install \"litholog[gui]\")")
+
     ap = sub.add_parser("app", help="open the LithoLog browser app")
     ap.add_argument("--port", type=int, default=8501)
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser window")
@@ -122,7 +146,8 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     return {"template": _template, "validate": _validate, "striplog": _striplog,
             "legend": _legend, "convert": _convert, "section": _section, "fence": _fence,
-            "map": _map, "model": _model, "app": _app}[a.cmd](a)
+            "map": _map, "model": _model, "app": _app, "dxf": _dxf, "kmz": _kmz,
+            "piper": _piper, "stiff": _stiff, "studio": _studio}[a.cmd](a)
 
 
 def _template(a):
@@ -405,6 +430,79 @@ def _app(a):
         cmd += ["--server.headless", "true"]
     print(f"LithoLog app: http://localhost:{a.port}  (Ctrl+C to stop)")
     return subprocess.call(cmd)
+
+
+def _dxf(a):
+    from .dxf import export_boreholes_dxf
+    from .io import load_project
+
+    project = load_project(a.data, legend=a.legend)
+    out = export_boreholes_dxf(project, a.out, project.legend)
+    print(f"Wrote {out}: {len(project.ids)} borehole(s)")
+    return 0
+
+
+def _kmz(a):
+    from .io import load_project
+    from .kmz import export_kmz
+
+    project = load_project(a.data, legend=a.legend)
+    out = export_kmz(project, a.out, crs=a.crs, legend=project.legend)
+    print(f"Wrote {out}: {len(project.ids)} borehole(s)")
+    return 0
+
+
+def _piper(a):
+    from .hydrochem import save_piper
+    from .io import load_project
+
+    project = load_project(a.data, legend=a.legend)
+    try:
+        out = save_piper(project, a.out)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    print(f"Wrote {out}")
+    return 0
+
+
+def _stiff(a):
+    import matplotlib.pyplot as plt
+
+    from .hydrochem import stiff_figure
+    from .io import load_project
+
+    project = load_project(a.data, legend=a.legend)
+    wq = project.water_quality
+    if not len(wq):
+        print("Project has no water quality data", file=sys.stderr)
+        return 2
+    if a.borehole:
+        wq = wq[wq["borehole_id"] == a.borehole]
+        if wq.empty:
+            print(f"No water sample for borehole '{a.borehole}'", file=sys.stderr)
+            return 2
+    row = wq.iloc[0]
+    fig = stiff_figure(row, title=f"Stiff diagram: {row.get('borehole_id', '')}")
+    out = Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote {out}")
+    return 0
+
+
+def _studio(a):
+    import importlib.util
+
+    missing = [m for m in ("PySide6", "pyvista", "pyvistaqt") if importlib.util.find_spec(m) is None]
+    if missing:
+        print(f"The desktop studio needs: {', '.join(missing)}.\n"
+              "Install them with:  pip install \"litholog[gui]\"", file=sys.stderr)
+        return 2
+    from .studio.app import main as studio_main
+
+    return studio_main([])
 
 
 def _safe(name: str) -> str:

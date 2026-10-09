@@ -47,6 +47,7 @@ class Style:
     lith_w: float = 24.0
     well_w: float = 26.0
     curve_w: float = 24.0
+    geotech_w: float = 22.0
     max_curves: int = 3
     font: str = "DejaVu Sans"
     desc_size: float = 6.3
@@ -140,8 +141,17 @@ def _draw_page(bh, legend, s: Style, top, bottom, page_no, n_pages):
     widths.append(("lith", s.lith_w))
     show_well = len(bh.construction) > 0 or len(bh.water_levels.dropna(subset=["depth"])) > 0
     well_w = s.well_w if show_well else 0.0
-    fixed = sum(w for _, w in widths) + well_w + len(params) * s.curve_w
-    widths.append(("desc", usable - fixed))
+
+    has_spt = len(bh.geotech) > 0 and ("spt_n" in bh.geotech.columns and bh.geotech["spt_n"].notna().any() or "n60" in bh.geotech.columns and bh.geotech["n60"].notna().any())
+    has_rqd = len(bh.geotech) > 0 and ("rqd" in bh.geotech.columns and bh.geotech["rqd"].notna().any() or "recovery" in bh.geotech.columns and bh.geotech["recovery"].notna().any())
+    gt_w = (s.geotech_w if has_spt else 0.0) + (s.geotech_w if has_rqd else 0.0)
+
+    fixed = sum(w for _, w in widths) + well_w + len(params) * s.curve_w + gt_w
+    widths.append(("desc", max(35.0, usable - fixed)))
+    if has_spt:
+        widths.append(("spt", s.geotech_w))
+    if has_rqd:
+        widths.append(("rqd", s.geotech_w))
     if show_well:
         widths.append(("well", well_w))
     widths += [(f"curve:{p}", s.curve_w) for p in params]
@@ -177,6 +187,10 @@ def _draw_page(bh, legend, s: Style, top, bottom, page_no, n_pages):
     _lith_track(axes["lith"], bh, legend, top, bottom)
     desc_w = dict(widths)["desc"]
     _desc_track(pg, axes["desc"], bh, legend, top, bottom, s, desc_w, y_body, body_h)
+    if "spt" in axes:
+        _spt_track(axes["spt"], bh, top, bottom)
+    if "rqd" in axes:
+        _rqd_track(axes["rqd"], bh, top, bottom)
     if "well" in axes:
         _well_track(axes["well"], bh, top, bottom)
     for i, p in enumerate(params):
@@ -246,15 +260,64 @@ def _clip(text, n):
 def _track_title(ax, key, bh, s):
     h = s.title_h
     titles = {"depth": "Depth\n(m bgl)", "elev": "Elev.\n(m amsl)", "lith": "Lithology",
-              "desc": "Description", "well": "Well\nconstruction"}
+              "desc": "Description", "well": "Well\nconstruction",
+              "spt": "SPT (N60)\nblows/30cm", "rqd": "RQD / TCR\n(%)"}
     if key.startswith("curve:"):
         p = key.split(":", 1)[1]
         unit = bh.downhole.loc[bh.downhole["parameter"].astype(str) == p, "unit"].dropna()
         label = p + (f"\n({unit.iloc[0]})" if len(unit) else "")
     else:
-        label = titles[key]
+        label = titles.get(key, key)
     ax.text(0.5, h / 2, label, ha="center", va="center", fontsize=6.3, fontweight="bold",
             color=INK, linespacing=1.1)
+
+
+def _spt_track(ax, bh, top, bottom):
+    gt = bh.geotech
+    if not len(gt):
+        return
+    col = "n60" if "n60" in gt.columns and gt["n60"].notna().any() else "spt_n"
+    if col not in gt.columns:
+        return
+    sub = gt.dropna(subset=[col, "from"])
+    for _, r in sub.iterrows():
+        f = float(r["from"])
+        t = float(r["to"]) if pd.notna(r.get("to")) and r["to"] > f else f + 0.5
+        if t < top or f > bottom:
+            continue
+        val = min(float(r[col]), 60.0)
+        ax.barh((f + t) / 2, val, height=max(0.4, t - f), left=0, color="#E67E22", edgecolor="#B95C00", lw=0.6, alpha=0.85)
+        ax.text(val + 1.5, (f + t) / 2, f"{int(r[col])}", va="center", fontsize=5.5, color=INK)
+    ax.set_xlim(0, 60)
+    ax.set_xticks([0, 20, 40, 60])
+    ax.tick_params(labelsize=5, length=2)
+
+
+def _rqd_track(ax, bh, top, bottom):
+    gt = bh.geotech
+    if not len(gt):
+        return
+    has_rqd = "rqd" in gt.columns and gt["rqd"].notna().any()
+    has_rec = "recovery" in gt.columns and gt["recovery"].notna().any()
+    sub = gt.dropna(subset=["from"])
+    for _, r in sub.iterrows():
+        f = float(r["from"])
+        t = float(r["to"]) if pd.notna(r.get("to")) and r["to"] > f else f + 1.0
+        if t < top or f > bottom:
+            continue
+        h = max(0.4, t - f)
+        mid = (f + t) / 2
+        if has_rec and pd.notna(r.get("recovery")):
+            rec_val = min(100.0, float(r["recovery"]))
+            ax.barh(mid, rec_val, height=h, left=0, color="#D5D5D5", edgecolor="#AAAAAA", lw=0.4, alpha=0.5)
+        if has_rqd and pd.notna(r.get("rqd")):
+            rqd_val = min(100.0, float(r["rqd"]))
+            col = "#5CB85C" if rqd_val >= 75 else ("#F0AD4E" if rqd_val >= 50 else "#D9534F")
+            ax.barh(mid, rqd_val, height=h * 0.75, left=0, color=col, edgecolor="#333333", lw=0.5, alpha=0.8)
+            ax.text(rqd_val + 2, mid, f"{int(rqd_val)}%", va="center", fontsize=5, color=INK)
+    ax.set_xlim(0, 100)
+    ax.set_xticks([0, 50, 100])
+    ax.tick_params(labelsize=5, length=2)
 
 
 def _depth_track(ax, ticks, step, top, bottom, label_fn):

@@ -76,6 +76,55 @@ def borehole_values(project: Project, attr: str) -> pd.DataFrame:
 
 
 @dataclass
+class Interp:
+    """How strongly, and how far, each borehole influences an interpolated surface (as in GMS).
+
+    method: "idw", "kriging", "linear" (TIN) or "smooth" (Clough-Tocher smooth TIN).
+    power: IDW exponent - higher keeps each borehole's influence local, lower spreads it.
+    neighbours: use only the N nearest boreholes for each point (None = all).
+    radius: search radius (m); boreholes farther away have no influence (the nearest one is
+        used where none is within the radius).
+    variogram: "spherical", "exponential" or "gaussian"; range/sill/nugget None = fitted to the data.
+    """
+    method: str = "idw"
+    power: float = 2.0
+    neighbours: int | None = None
+    radius: float | None = None
+    variogram: str = "spherical"
+    range: float | None = None
+    sill: float | None = None
+    nugget: float | None = None
+
+    def label(self) -> str:
+        parts = []
+        if self.method == "idw":
+            parts.append(f"IDW (power {self.power:g})")
+        elif self.method == "kriging":
+            parts.append(f"kriging ({self.variogram})")
+        elif self.method == "linear":
+            parts.append("linear TIN")
+        elif self.method == "smooth":
+            parts.append("smooth TIN")
+        else:
+            parts.append(str(self.method))
+        if self.neighbours:
+            parts.append(f"{self.neighbours} nearest")
+        if self.radius:
+            parts.append(f"radius {self.radius:g} m")
+        if self.method == "kriging" and self.range:
+            parts.append(f"range {self.range:g}")
+        return ", ".join(parts)
+
+
+def as_interp(obj) -> Interp:
+    if isinstance(obj, Interp):
+        return obj
+    if isinstance(obj, str):
+        return Interp(method=obj)
+    return Interp()
+
+
+@dataclass
 class Grid:
     x: np.ndarray       # cell-centre x (nx,)
     y: np.ndarray       # cell-centre y (ny,)

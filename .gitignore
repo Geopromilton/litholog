@@ -1,4 +1,47 @@
 __pycache__/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
+.venv/
+.venv*/
+
+# Output
 striplogs/
+exports/
+*.log
+err.log
+out.log
+stderr.txt
+stdout.txt
+
+# Packaged builds, recovery material and scratch work (kept locally, not in the repository)
+_archive/
+Backup/
+CheckOriginal/
+portable/
+scratch/
+decompiled_*/
+*.exe_extracted/
+litholog_source_ribbon/
+*.exe
+*.zip
+_internal
+
+# Bundled runtime and duplicate manual
+tools/python312/
+/LithoLog_Studio_User_Manual.docx
+
+# Site-specific working files (client data: not for the public repository)
+tools/
+Chokkanathapuram*
+LithoLog_CNB.xlsx
+model_data/
+model_data.xlsx
+/sample_project.xlsx
+create_excel.py
+create_model_data.py
+make_excel.py
+run_excel.ps1
+screenshot.py
+litholog_check.txt
+*.lnk

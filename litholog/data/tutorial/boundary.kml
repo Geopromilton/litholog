@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Tutorial Study Area Boundary</name>
+    <Style id="bndStyle">
+      <LineStyle><color>ff0000ff</color><width>3</width></LineStyle>
+      <PolyStyle><color>3300ff00</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Exploration Concession Block</name>
+      <styleUrl>#bndStyle</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              653665.2,1324672.48,0 656726.6,1324672.48,0 656726.6,1327731.59,0 653665.2,1327731.59,0 653665.2,1324672.48,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

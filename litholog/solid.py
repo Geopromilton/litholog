@@ -54,7 +54,7 @@ def _signed_lateral(inside: np.ndarray) -> np.ndarray:
 
 
 def build_solids(model: BlockModel, smooth: float = 1.0, cutaway: str | None = None,
-                 only=None) -> list[Solid]:
+                 only=None, per_horizon: bool = False) -> list[Solid]:
     """Smooth closed solids per lithology.
 
     ``smooth``: Gaussian smoothing of the vote proportions (voxels).

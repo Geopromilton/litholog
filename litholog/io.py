@@ -21,6 +21,11 @@ SHEET_ALIASES = {
     "construction": ["construction", "well_construction", "casing", "completion"],
     "water_levels": ["water_levels", "water_level", "waterlevels", "wl", "swl"],
     "downhole": ["downhole", "downhole_data", "geophysics", "logs", "measurements"],
+    "geotech": ["geotech", "geotechnical", "spt", "rqd", "coring", "core_recovery"],
+    "water_quality": ["water_quality", "waterquality", "hydrochem", "chemistry", "water_chemistry", "wq"],
+    "survey": ["survey", "surveys", "deviation", "trajectory", "directional"],
+    "assays": ["assays", "assay", "grades", "geochem", "chemistry_intervals"],
+    "fractures": ["fractures", "fracture", "joints", "discontinuities", "structural"],
     "legend": ["legend", "lithology_legend", "codes", "lithology_codes"],
 }
 
@@ -59,6 +64,52 @@ COLUMN_ALIASES = {
         "value": ["value", "reading", "val"],
         "unit": ["unit", "units"],
     },
+    "geotech": {
+        "borehole_id": ["borehole_id", "borehole", "bh_id", "bh", "well_id", "well", "id", "hole_id"],
+        "from": ["from", "depth_from", "top", "from_depth"],
+        "to": ["to", "depth_to", "bottom", "to_depth"],
+        "spt_n": ["spt_n", "spt", "n_value", "n", "blows"],
+        "n60": ["n60", "n_60", "spt_n60", "corrected_n"],
+        "rqd": ["rqd", "rqd_pct", "rqd_%", "rock_quality"],
+        "recovery": ["recovery", "tcr", "scr", "core_recovery", "cr_%", "rec_%"],
+        "weathering": ["weathering", "grade", "weathering_grade"],
+    },
+    "water_quality": {
+        "borehole_id": ["borehole_id", "borehole", "bh_id", "bh", "well_id", "well", "id", "hole_id", "sample_id"],
+        "date": ["date", "sampled_on", "date_sampled"],
+        "ca": ["ca", "calcium", "ca2"],
+        "mg": ["mg", "magnesium", "mg2"],
+        "na": ["na", "sodium", "na_plus"],
+        "k": ["k", "potassium", "k_plus"],
+        "cl": ["cl", "chloride", "chlorine"],
+        "so4": ["so4", "sulfate", "sulphate", "so42"],
+        "hco3": ["hco3", "bicarbonate", "alkalinity"],
+        "co3": ["co3", "carbonate"],
+        "no3": ["no3", "nitrate"],
+        "ph": ["ph"],
+        "tds": ["tds", "total_dissolved_solids"],
+        "ec": ["ec", "electrical_conductivity", "conductivity"],
+    },
+    "survey": {
+        "borehole_id": ["borehole_id", "borehole", "bh_id", "bh", "well_id", "well", "id", "hole_id"],
+        "depth": ["depth", "md", "measured_depth"],
+        "dip": ["dip", "inclination", "inc"],
+        "azimuth": ["azimuth", "azi", "bearing", "dir"],
+    },
+    "assays": {
+        "borehole_id": ["borehole_id", "borehole", "bh_id", "bh", "well_id", "well", "id", "hole_id", "sample_id"],
+        "from": ["from", "depth_from", "top", "from_depth"],
+        "to": ["to", "depth_to", "bottom", "to_depth"],
+    },
+    "fractures": {
+        "borehole_id": ["borehole_id", "borehole", "bh_id", "bh", "well_id", "well", "id", "hole_id"],
+        "depth": ["depth", "md"],
+        "dip": ["dip", "inclination"],
+        "dip_direction": ["dip_direction", "dip_dir", "azimuth", "dir"],
+        "aperture": ["aperture", "width"],
+        "yield": ["yield", "flow", "water_yield"],
+        "remarks": ["remarks", "desc", "description"],
+    },
 }
 
 NUMERIC = {
@@ -67,6 +118,11 @@ NUMERIC = {
     "construction": ["from", "to", "diameter"],
     "water_levels": ["depth"],
     "downhole": ["depth", "value"],
+    "geotech": ["from", "to", "spt_n", "n60", "rqd", "recovery"],
+    "water_quality": ["ca", "mg", "na", "k", "cl", "so4", "hco3", "co3", "no3", "ph", "tds", "ec"],
+    "survey": ["depth", "dip", "azimuth"],
+    "assays": ["from", "to"],
+    "fractures": ["depth", "dip", "dip_direction", "aperture", "yield"],
 }
 
 
@@ -113,8 +169,12 @@ def _standardize(df: pd.DataFrame, table: str) -> pd.DataFrame:
         df["code"] = df["code"].map(lambda v: "" if pd.isna(v) else str(v).strip().upper())
     if table == "construction":
         df["element"] = df["element"].map(canonical_element)
-    if table == "water_levels":
+    if table in ("water_levels", "water_quality") and "date" in df.columns:
         df["date"] = df["date"].map(parse_date)
+    if table == "assays":
+        for c in df.columns:
+            if c not in ("borehole_id", "sample_id"):
+                df[c] = pd.to_numeric(df[c], errors="coerce")
     return df.reset_index(drop=True)
 
 

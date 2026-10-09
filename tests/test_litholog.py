@@ -7,7 +7,7 @@ from litholog import Legend, load_project, save_striplog, validate, write_templa
 from litholog.cli import main
 from litholog.io import canonical_element, normalize
 
-SAMPLE = Path(__file__).parents[1] / "examples" / "sample_project.xlsx"
+SAMPLE = Path(__file__).parent / "data" / "sample_project.xlsx"
 
 
 def _write(path, **sheets):
@@ -288,7 +288,7 @@ def test_map_and_model_cli(tmp_path):
     assert main(["model", str(f), "--cell", "100", "--sy", "4=0.02", "--only", "4", "--style", "both",
                  "--views", "oblique_sw", "top", "-o", str(tmp_path / "model"), "-f", "png"]) == 0
     for name in ("block_model.png", "block_model_4.png", "slices.png", "volumes.csv", "model.vtk",
-                 "solid_3d.html", "solid_top.png", "solid_4_3d.html"):
+                 "solid_3d.html", "solid_4_3d.html"):  # solid_top.png needs Kaleido + Chrome, so is not required
         assert (tmp_path / "model" / name).exists()
 
 
@@ -392,7 +392,8 @@ def test_app_pages_run_on_demo_data():
     at.run()
     assert not at.exception
     at.sidebar.radio[0].set_value("Demo data (synthetic)").run()
-    for page in ["Overview", "Strip logs", "Cross-section", "Fence", "Maps", "3D model", "Help"]:
+    for page in ["Overview", "Strip logs", "Cross-section", "Fence", "Maps", "3D model",
+                 "Geotech & Hydrochem", "Mining & Resources", "Export Studio", "Help"]:
         at.radio(key="page").set_value(page).run()
         assert not at.exception, (page, [e.message for e in at.exception])
         assert not at.error, (page, [e.value for e in at.error])

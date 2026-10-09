@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Exploration Concession Block", "area_ha": 900.0 },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [653665.2, 1324672.48],
+          [656726.6, 1324672.48],
+          [656726.6, 1327731.59],
+          [653665.2, 1327731.59],
+          [653665.2, 1324672.48]
+        ]]
+      }
+    }
+  ]
+}

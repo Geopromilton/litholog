@@ -7,6 +7,7 @@ interpolated from the boreholes, and laterally by the boreholes' convex hull.
 """
 
 from __future__ import annotations
+from .paths import debug_log_path
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,15 +46,28 @@ class BlockModel:
     base: np.ndarray | None = None      # (ny, nx) base-of-drilling elevation
     inside: np.ndarray | None = None    # (ny, nx) columns inside the model area
     holes: list | None = None           # [(id, x, y, [Unit, ...]), ...] for drawing boreholes
+    water_table: np.ndarray | None = None  # (ny, nx) water-table elevation surface
+    sat_expected: np.ndarray | None = None # (ncodes,) probability-weighted saturated voxel counts
+    project: object = None
 
     @property
     def voxel_volume(self):
         return self.cell * self.cell * self.dz
 
-    def volumes(self, sy: dict | None = None) -> pd.DataFrame:
+    @property
+    def solids(self) -> dict:
+        try:
+            from .solid import build_solids
+            s_list = build_solids(self)
+            return {s.code: s for s in s_list}
+        except Exception:
+            return {}
+
+    def volumes(self, sy: dict | None = None, water: bool = True) -> pd.DataFrame:
         sy = sy or {}
         rows = []
         total = int((self.lith >= 0).sum())
+        has_sat = self.sat_expected is not None and water
         for k, code in enumerate(self.codes):
             n = int((self.lith == k).sum())
             # Volumes come from the indicator probabilities (unbiased for thin units);
@@ -63,10 +77,21 @@ class BlockModel:
             row = {"code": code, "voxels": n, "volume_m3": vol, "volume_mcm": vol / 1e6,
                    "classified_mcm": n * self.voxel_volume / 1e6,
                    "percent": 100.0 * n_exp / total if total else 0.0}
+            if has_sat:
+                n_sat = float(self.sat_expected[k])
+                vol_sat = n_sat * self.voxel_volume
+                vol_unsat = max(0.0, vol - vol_sat)
+                row["sat_volume_m3"] = vol_sat
+                row["sat_volume_mcm"] = vol_sat / 1e6
+                row["unsat_volume_m3"] = vol_unsat
+                row["unsat_volume_mcm"] = vol_unsat / 1e6
             if code in sy:
                 row["specific_yield"] = sy[code]
                 row["storage_m3"] = vol * sy[code]
                 row["storage_mcm"] = vol * sy[code] / 1e6
+                if has_sat:
+                    row["sat_storage_m3"] = row["sat_volume_m3"] * sy[code]
+                    row["sat_storage_mcm"] = row["sat_volume_m3"] * sy[code] / 1e6
             rows.append(row)
         return pd.DataFrame(rows)
 
@@ -80,7 +105,7 @@ class BlockModel:
 
 def build_model(project: Project, cell: float | None = None, dz: float | None = None,
                 power: float = 2.0, target: int = 70, datum: str = "depth",
-                max_voxels: int = 3_000_000, boundary=None) -> BlockModel:
+                max_voxels: int = 3_000_000, boundary=None, water: bool = True) -> BlockModel:
     """Indicator-IDW lithology model.
 
     ``datum="depth"`` (default) compares holes at the same depth below ground, so
@@ -88,6 +113,15 @@ def build_model(project: Project, cell: float | None = None, dz: float | None = 
     rock). ``datum="elevation"`` compares them at the same elevation (flat-lying
     or regionally dipping sediments).
     """
+    import time
+    def _dbg(msg):
+        try:
+            with open(debug_log_path(), "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%H:%M:%S')}] [build_model] {msg}\n")
+        except Exception:
+            pass
+
+    _dbg("build_model starting...")
     holes = []
     for bh in project:
         us = units(bh)
@@ -99,6 +133,7 @@ def build_model(project: Project, cell: float | None = None, dz: float | None = 
     hy = np.array([b.y for b, _ in holes], float)
     tops = np.array([us[0].top for _, us in holes])
     bots = np.array([us[-1].bot for _, us in holes])
+    _dbg(f"{len(holes)} holes filtered. Making axes...")
     if boundary is not None:  # model covers the study area (and every borehole)
         bx0, bx1, by0, by1 = boundary.bbox
         gx, gy, cell = make_axes(np.r_[hx, bx0, bx1], np.r_[hy, by0, by1], cell, margin=0.01, target=target)
@@ -110,12 +145,15 @@ def build_model(project: Project, cell: float | None = None, dz: float | None = 
         dz = float(np.clip(np.percentile(thick, 10) / 2, 0.5, max((zhi - zlo) / 60, 0.5)))
         dz = round(dz, 2)
     gz = np.arange(zlo + dz / 2, zhi, dz)
+    _dbg(f"Grid: gx={len(gx)}, gy={len(gy)}, gz={len(gz)}. Total={len(gx)*len(gy)*len(gz)}")
     if len(gx) * len(gy) * len(gz) > max_voxels:
         raise ValueError("Model too large; increase --cell or --dz")
 
     codes = list(dict.fromkeys(u.code for _, us in holes for u in us))
     cidx = {c: k for k, c in enumerate(codes)}
+    _dbg("Interpolating ground surface...")
     ground = interpolate(hx, hy, tops, gx, gy, "linear")
+    _dbg("Interpolating base surface...")
     base = interpolate(hx, hy, bots, gx, gy, "linear")
     cov = None
     if boundary is not None:
@@ -127,6 +165,25 @@ def build_model(project: Project, cell: float | None = None, dz: float | None = 
         inside = hull_mask(hx, hy, gx, gy, cell)
     else:
         inside = np.ones(ground.shape, bool)
+
+    water_table = None
+    if water:
+        wl_holes = []
+        for bh, _ in holes:
+            if bh.has_elevation:
+                wl = bh.water_levels.dropna(subset=["depth"])
+                if len(wl):
+                    wl_holes.append((bh.x, bh.y, bh.elevation - wl.iloc[-1]["depth"]))
+        if len(wl_holes) >= 3:
+            wlx = np.array([p[0] for p in wl_holes])
+            wly = np.array([p[1] for p in wl_holes])
+            wlz = np.array([p[2] for p in wl_holes])
+            wt_lin = interpolate(wlx, wly, wlz, gx, gy, "linear")
+            wt_idw = interpolate(wlx, wly, wlz, gx, gy, "idw")
+            water_table = np.where(np.isnan(wt_lin), wt_idw, wt_lin)
+        elif len(wl_holes) in (1, 2):
+            wlz = float(np.mean([p[2] for p in wl_holes]))
+            water_table = np.full(ground.shape, wlz)
 
     X, Y = np.meshgrid(gx, gy)
     d = np.hypot(X.ravel()[:, None] - hx[None], Y.ravel()[:, None] - hy[None])
@@ -160,6 +217,7 @@ def build_model(project: Project, cell: float | None = None, dz: float | None = 
     lith = np.full((len(gz), len(gy), len(gx)), -1, int)
     prob = np.zeros((len(gz), len(gy), len(gx), len(codes)), np.float32)
     expected = np.zeros(len(codes))
+    sat_expected = np.zeros(len(codes)) if water_table is not None else None
     for k, z in enumerate(gz):
         keep = inside & (z <= ground) & (z >= base)
         if datum == "depth":
@@ -172,9 +230,14 @@ def build_model(project: Project, cell: float | None = None, dz: float | None = 
         keep &= layer >= 0
         lith[k] = np.where(keep, layer, -1)
         expected += p[keep].sum(0)
+        if water_table is not None:
+            is_sat = keep & (z <= water_table)
+            sat_expected += p[is_sat].sum(0)
     hole_info = [(bh.id, bh.x, bh.y, us) for bh, us in holes]
-    return BlockModel(gx, gy, gz, cell, dz, lith, codes, expected, boundary, cov,
-                      prob, ground, base, inside, hole_info)
+    bm = BlockModel(gx, gy, gz, cell, dz, lith, codes, expected, boundary, cov,
+                    prob, ground, base, inside, hole_info, water_table, sat_expected,
+                    project=project)
+    return bm
 
 
 # ---------------------------------------------------------------------------

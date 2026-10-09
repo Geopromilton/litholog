@@ -203,6 +203,27 @@ def section_figure(project: Project, line: SectionLine, legend: Legend | None = 
             ax.plot([st.s, st.s], [us[0].top, us[0].top + pad_z * 0.6], color=INK, lw=0.6, zorder=7)
             ax.text(st.s, us[0].top + pad_z * 0.7, label, ha="center", va="bottom", fontsize=6.5,
                     fontweight="bold", color=INK, zorder=8, rotation=90 if len(holes) > 14 else 0)
+
+        # Well construction overlay (casing pipe walls, screen slots)
+        if len(bh.construction) and us:
+            base_elev = bh.elevation if (datum == "elevation" and bh.has_elevation) else 0
+            for _, cr in bh.construction.iterrows():
+                cf, ct, celem = cr.get("from"), cr.get("to"), str(cr.get("element", "")).lower()
+                if pd.isna(cf) or pd.isna(ct) or ct <= cf:
+                    continue
+                z_top = base_elev - cf
+                z_bot = base_elev - ct
+                if celem == "screen":
+                    ax.add_patch(Rectangle((st.s - 1.15 * half, z_bot), 2.3 * half, z_top - z_bot,
+                                           facecolor="none", edgecolor=WATER, lw=1.2, ls=":", zorder=9.5))
+                    n_slots = max(2, int((z_top - z_bot) / 1.5))
+                    for sz in np.linspace(z_bot, z_top, min(n_slots, 8)):
+                        ax.plot([st.s - 1.15 * half, st.s + 1.15 * half], [sz, sz], color=WATER, lw=0.6, zorder=9.6)
+                elif celem in ("casing", "seal", "grout"):
+                    col = "#333333" if celem == "casing" else "#777777"
+                    ax.plot([st.s - 1.1 * half, st.s - 1.1 * half], [z_bot, z_top], color=col, lw=1.4, zorder=9.5)
+                    ax.plot([st.s + 1.1 * half, st.s + 1.1 * half], [z_bot, z_top], color=col, lw=1.4, zorder=9.5)
+
         wl = bh.water_levels.dropna(subset=["depth"])
         if len(wl) and us:
             z = (bh.elevation if (datum == "elevation" and bh.has_elevation) else 0) - wl.iloc[-1]["depth"]
