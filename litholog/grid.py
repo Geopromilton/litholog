@@ -184,30 +184,66 @@ def hull_mask(px, py, gx, gy, buffer: float = 0.0):
     return inside.reshape(X.shape)
 
 
-def interpolate(px, py, pv, gx, gy, method: str = "idw", power: float = 2.0):
+def interpolate(px, py, pv, gx, gy, method="idw", power: float = 2.0):
+    """Interpolate point values onto the grid ``gx`` x ``gy``.
+
+    ``method`` is a name ("idw", "linear", "smooth", "kriging") or an ``Interp`` carrying the
+    influence settings (IDW power, nearest-N neighbours, search radius, variogram).
+    A plain name uses ``power`` for IDW; an ``Interp`` uses its own settings.
+    """
+    spec = method if isinstance(method, Interp) else Interp(method=str(method), power=power)
+    name = spec.method
+    if name not in ("idw", "linear", "smooth", "kriging"):
+        raise ValueError(f"Unknown gridding method '{name}' (idw, linear, smooth, kriging)")
     px, py, pv = (np.asarray(a, float) for a in (px, py, pv))
     X, Y = np.meshgrid(gx, gy)
     tx, ty = X.ravel(), Y.ravel()
     if len(pv) == 1:
         return np.full(X.shape, pv[0])
-    if method == "idw":
-        d = np.hypot(tx[:, None] - px[None, :], ty[:, None] - py[None, :])
-        exact = d < 1e-9
-        w = 1.0 / np.maximum(d, 1e-9) ** power
-        out = (w @ pv) / w.sum(1)
-        hit = exact.any(1)
-        out[hit] = pv[exact[hit].argmax(1)]
-    elif method == "linear":
+    if name == "idw":
+        out = _idw(px, py, pv, tx, ty, spec.power, spec.neighbours, spec.radius)
+    elif name == "linear":
         from scipy.interpolate import griddata
 
         out = griddata((px, py), pv, (tx, ty), method="linear")
         near = griddata((px, py), pv, (tx, ty), method="nearest")
         out = np.where(np.isnan(out), near, out)
-    elif method == "kriging":
-        out = _ordinary_kriging(px, py, pv, tx, ty)
+    elif name == "smooth":
+        from scipy.interpolate import CloughTocher2DInterpolator, griddata
+
+        try:
+            out = CloughTocher2DInterpolator(np.column_stack([px, py]), pv)(tx, ty)
+        except Exception:  # noqa: BLE001 - too few / collinear points: fall back to linear
+            out = griddata((px, py), pv, (tx, ty), method="linear")
+        near = griddata((px, py), pv, (tx, ty), method="nearest")
+        out = np.where(np.isnan(out), near, out)
     else:
-        raise ValueError(f"Unknown gridding method '{method}' (idw, linear, kriging)")
+        out = _ordinary_kriging(px, py, pv, tx, ty, spec.variogram, spec.nugget, spec.sill, spec.range)
     return out.reshape(X.shape)
+
+
+def _idw(px, py, pv, tx, ty, power, neighbours=None, radius=None):
+    """Inverse-distance weighting, optionally limited to the N nearest boreholes and/or a radius.
+
+    Where no borehole lies within the radius, the nearest one is used."""
+    d = np.hypot(tx[:, None] - px[None, :], ty[:, None] - py[None, :])
+    use = np.ones(d.shape, bool)
+    if neighbours and 0 < int(neighbours) < d.shape[1]:
+        k = int(neighbours)
+        keep = np.zeros(d.shape, bool)
+        np.put_along_axis(keep, np.argpartition(d, k - 1, axis=1)[:, :k], True, axis=1)
+        use &= keep
+    if radius:
+        use &= d <= float(radius)
+    empty = ~use.any(axis=1)
+    if empty.any():
+        use[empty, d[empty].argmin(axis=1)] = True
+    w = np.where(use, 1.0 / np.maximum(d, 1e-9) ** power, 0.0)
+    out = (w @ pv) / w.sum(1)
+    exact = (d < 1e-9) & use
+    hit = exact.any(1)
+    out[hit] = pv[exact[hit].argmax(1)]
+    return out
 
 
 def _spherical(h, nugget, sill, rng):
@@ -243,17 +279,33 @@ def fit_variogram(px, py, pv, n_lags: int = 12):
         return 0.0, var, maxd / 2
 
 
-def _ordinary_kriging(px, py, pv, tx, ty):
+def _variogram(kind, h, nugget, sill, rng):
+    """Semivariogram model: "spherical" (default), "exponential" or "gaussian"."""
+    h = np.asarray(h, float)
+    r = max(float(rng), 1e-12)
+    if kind == "exponential":
+        g = nugget + (sill - nugget) * (1 - np.exp(-3 * h / r))
+    elif kind == "gaussian":
+        g = nugget + (sill - nugget) * (1 - np.exp(-3 * (h / r) ** 2))
+    else:
+        return _spherical(h, nugget, sill, r)
+    return np.where(h == 0, 0.0, g)
+
+
+def _ordinary_kriging(px, py, pv, tx, ty, kind="spherical", nugget=None, sill=None, rng=None):
     n = len(pv)
-    nug, sill, rng = fit_variogram(px, py, pv)
+    f_nug, f_sill, f_rng = fit_variogram(px, py, pv)
+    nug = f_nug if nugget is None else float(nugget)
+    sill = f_sill if sill is None else float(sill)
+    rng = f_rng if rng is None else float(rng)
     d = np.hypot(px[:, None] - px[None, :], py[:, None] - py[None, :])
     K = np.ones((n + 1, n + 1))
-    K[:n, :n] = _spherical(d, nug, sill, rng)
+    K[:n, :n] = _variogram(kind, d, nug, sill, rng)
     K[n, n] = 0.0
     out = np.empty(len(tx))
     for s in range(0, len(tx), 20000):  # chunk to bound memory
         dt = np.hypot(px[:, None] - tx[None, s:s + 20000], py[:, None] - ty[None, s:s + 20000])
-        rhs = np.vstack([_spherical(dt, nug, sill, rng), np.ones((1, dt.shape[1]))])
+        rhs = np.vstack([_variogram(kind, dt, nug, sill, rng), np.ones((1, dt.shape[1]))])
         w = np.linalg.lstsq(K, rhs, rcond=None)[0]
         out[s:s + 20000] = w[:n].T @ pv
     return out

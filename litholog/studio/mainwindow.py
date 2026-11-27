@@ -2201,7 +2201,7 @@ class MainWindow(QMainWindow):
             reading = readings[0]
         else:
             reading = None
-        wt = water_table(wells, reading, self.model)
+        wt = water_table(self.model, wells, reading)
         sy = self._sy()
         v = saturated_volumes(self.model, wt, sy)
         from ..maps import map_figure
