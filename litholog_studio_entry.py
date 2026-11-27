@@ -7,6 +7,13 @@ if __name__ == "__main__":
         i = sys.argv.index("--self-check")
         report = sys.argv[i + 1] if len(sys.argv) > i + 1 else "litholog_check.txt"
         try:
+            # If the check hangs, write every thread's stack to <report>.trace after 120 s.
+            import faulthandler
+            _trace = open(report + ".trace", "w")
+            faulthandler.dump_traceback_later(120, file=_trace)
+        except Exception:  # noqa: BLE001 - diagnostics only
+            pass
+        try:
             from litholog.studio.smoke import check
             code = check(report)
         except BaseException:  # start-up/import failure: write it down instead of a hidden error dialog
