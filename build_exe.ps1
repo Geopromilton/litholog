@@ -5,9 +5,11 @@ Set-Location $PSScriptRoot
 $py = Join-Path $PSScriptRoot ".venv312\Scripts\python.exe"
 if (-not (Test-Path $py)) { throw "Missing $py" }
 
-Write-Host "1/5 Installing PyInstaller into .venv312 ..."
-& uv pip install --python $py pyinstaller
-if ($LASTEXITCODE -ne 0) { throw "Could not install PyInstaller" }
+Write-Host "1/5 Installing PyInstaller and runtime dependencies into .venv312 ..."
+# pyproj is imported at start-up by the aquifer/constraints modules; pyshp and plotly are used by
+# boundary import and 3D export. Without them the frozen app fails at import time.
+& uv pip install --python $py pyinstaller pyproj pyshp plotly
+if ($LASTEXITCODE -ne 0) { throw "Could not install PyInstaller / runtime dependencies" }
 
 Write-Host "2/5 Building ..."
 & $py -m PyInstaller --noconfirm --clean --workpath build_exe --distpath dist LithoLogStudio.spec
@@ -17,7 +19,11 @@ Write-Host "3/5 Self-check of the fresh build ..."
 $exe = Join-Path $PSScriptRoot "dist\LithoLogStudio\LithoLogStudio.exe"
 $report = Join-Path $PSScriptRoot "dist\self_check.txt"
 Remove-Item $report -ErrorAction SilentlyContinue
-$p = Start-Process -FilePath $exe -ArgumentList "--self-check", "`"$report`"" -PassThru -Wait
+$p = Start-Process -FilePath $exe -ArgumentList "--self-check", "`"$report`"" -PassThru
+if (-not $p.WaitForExit(300000)) {
+    $p.Kill()
+    throw "Self-check did not finish within 5 minutes and was stopped (a hidden error dialog is the usual cause)."
+}
 if (-not (Test-Path $report)) { throw "Self-check wrote no report (exit code $($p.ExitCode))" }
 Get-Content $report
 if (-not (Select-String -Path $report -Pattern "RESULT: PASS" -Quiet)) { throw "Self-check failed; portable folder left unchanged" }
