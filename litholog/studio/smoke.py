@@ -43,6 +43,7 @@ def check(report_path: str = "litholog_check.txt") -> int:
         if w.project is None:
             raise RuntimeError("demo project did not load within 120 s")
         lines.append(f"PASS: MainWindow initialized with {len(w.project)} boreholes")
+        w._saved_key = w._state_key()  # not modified -> closeEvent must not open the modal "save changes?" dialog
         w.close()
     except Exception as e:
         lines.append(f"FAIL: MainWindow test failed: {e}")
